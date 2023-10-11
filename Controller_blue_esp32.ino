@@ -21,8 +21,10 @@ int led = 0;
 
 // This callback gets called any time a new gamepad is connected.
 // Up to 4 gamepads can be connected at the same time.
+
 void onConnectedGamepad(GamepadPtr gp) {
   bool foundEmptySlot = false;
+
   for (int i = 0; i < BP32_MAX_GAMEPADS; i++) {
     if (myGamepads[i] == nullptr) {
       Serial.printf("CALLBACK: Gamepad is connected, index=%d\n", i);
@@ -94,10 +96,23 @@ void setup() {
   pinMode(in4, OUTPUT);
 
   digitalWrite(in1, HIGH);
-  digitalWrite(in3, HIGH);
-
   digitalWrite(in2, LOW);
+  digitalWrite(in3, HIGH);
   digitalWrite(in4, LOW);
+}
+
+void set_forward() {
+  digitalWrite(in1, HIGH);
+  digitalWrite(in2, LOW);
+  digitalWrite(in3, HIGH);
+  digitalWrite(in4, LOW);
+}
+
+void set_backward() {
+  digitalWrite(in1, LOW);
+  digitalWrite(in2, HIGH);
+  digitalWrite(in3, LOW);
+  digitalWrite(in4, HIGH);
 }
 
 
@@ -159,31 +174,6 @@ void loop() {
         myGamepad->setRumble(0xc0 /* force */, 0xc0 /* duration */);
       }
 
-      // Another way to query the buttons, is by calling buttons(), or
-      // miscButtons() which return a bitmask.
-      // Some gamepads also have DPAD, axis and more.
-      /*Serial.printf(
-          "idx=%d, dpad: 0x%02x, buttons: 0x%04x, axis L: %4d, %4d, axis R: "
-          "%4d, %4d, brake: %4d, throttle: %4d, misc: 0x%02x, gyro x:%6d y:%6d "
-          "z:%6d, accel x:%6d y:%6d z:%6d\n",
-          i,                        // Gamepad Index
-          myGamepad->dpad(),        // DPAD
-          myGamepad->buttons(),     // bitmask of pressed buttons
-          myGamepad->axisX(),       // (-511 - 512) left X Axis
-          myGamepad->axisY(),       // (-511 - 512) left Y axis
-          myGamepad->axisRX(),      // (-511 - 512) right X axis
-          myGamepad->axisRY(),      // (-511 - 512) right Y axis
-          myGamepad->brake(),       // (0 - 1023): brake button
-          myGamepad->throttle(),    // (0 - 1023): throttle (AKA gas) button
-          myGamepad->miscButtons(), // bitmak of pressed "misc" buttons
-          myGamepad->gyroX(),       // Gyro X
-          myGamepad->gyroY(),       // Gyro Y
-          myGamepad->gyroZ(),       // Gyro Z
-          myGamepad->accelX(),      // Accelerometer X
-          myGamepad->accelY(),      // Accelerometer Y
-          myGamepad->accelZ()       // Accelerometer Z
-      );*/
-
       int valor = myGamepad->buttons();
       if (valor == 1) {
 
@@ -198,43 +188,68 @@ void loop() {
 
       if (millis() - lastMillis > 50) {
         lastMillis = millis();
-        if (myGamepad->axisRY() <= 0 && myGamepad->axisRX() == 0) {
-          int duty = -(myGamepad->axisRY());
+        Serial.print("Y: ");
+        Serial.println(myGamepad->axisY());
+        Serial.print("X: ");
+        Serial.println(myGamepad->axisX());
+        Serial.print("RY: ");
+        Serial.println(myGamepad->axisRY());
+        Serial.print("RX: ");
+        Serial.println(myGamepad->axisRX());
 
-          duty = int(duty / 2);
+        if (myGamepad->axisY() == 0 && myGamepad->axisX() == 0 && myGamepad->axisRX() == 0 && myGamepad->axisRY() == 0) {
+          ledcWrite(ledChannel1, 0);
+          ledcWrite(ledChannel2, 0);
+          Serial.println("Duty zerado!");
+        }
+
+        // Negative Y -> going forward
+        if (myGamepad->axisY() < 0 && myGamepad->axisX() == 0) {
+          int duty = map(-myGamepad->axisY(), 0, 512, 200, 255);
+          set_forward();
+
           ledcWrite(ledChannel1, duty);
           ledcWrite(ledChannel2, duty);
-          Serial.println(myGamepad->axisRY());
           Serial.println(duty);
         }
 
+        // Positive RY -> going backwards
+        if (myGamepad->axisY() > 0 && myGamepad->axisX() == 0) {
+          int duty = map(myGamepad->axisY(), 0, 508, 200, 255);
+          set_backward();
+
+          ledcWrite(ledChannel1, duty);
+          ledcWrite(ledChannel2, duty);
+          Serial.println(duty);
+        }
+
+        // Viradas
         if (myGamepad->axisRY() == 0 && myGamepad->axisRX() != 0) {
-          int duty = (myGamepad->axisRX());
+          set_forward();
 
-          duty = int(duty / 2);
 
-          if (duty < 0) {
-            ledcWrite(ledChannel2, -duty);
+          if (myGamepad->axisRX() < 0) {
+            // RX negativo -> indo pra esquerda (0 até -512)
+            int duty = map(myGamepad->axisRX(), 0, -512, 128, 255);
+            Serial.print("Duty de virada:");
+            Serial.println(duty);
+
+            ledcWrite(ledChannel2, duty);
             ledcWrite(ledChannel1, 0);
           } else {
+            // RX positivo -> indo pra direita (0 até 508)
+            int duty = map(myGamepad->axisRX(), 0, 508, 128, 255);
+            Serial.print("Duty de virada:");
+            Serial.println(duty);
+
             ledcWrite(ledChannel2, 0);
             ledcWrite(ledChannel1, duty);
           }
         }
       }
-
-
-      // You can query the axis and other properties as well. See Gamepad.h
-      // For all the available functions.
     }
   }
 
-  // The main loop must have some kind of "yield to lower priority task" event.
-  // Otherwise the watchdog will get triggered.
-  // If your main loop doesn't have one, just add a simple `vTaskDelay(1)`.
-  // Detailed info here:
-  // https://stackoverflow.com/questions/66278271/task-watchdog-got-triggered-the-tasks-did-not-reset-the-watchdog-in-time
-
-  // vTaskDelay(1);
-  delay(150);
+  // Yield to lower priority task
+  vTaskDelay(1);
 }
